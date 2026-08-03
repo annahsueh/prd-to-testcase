@@ -31,10 +31,11 @@ description: "把 Notion PRD 規格文件轉成 Notion 測試案例資料庫（T
 2. `notion-move-pages` 把副本移到目標測試文件底下
 3. `notion-update-page` 改標題為 `🎙️ [平台] 功能名 Test Case（V1）`（icon 用該功能的 emoji，平台如 `[Web][App]`），並改頁面內容為 PRD `<mention-page>` 與 Figma 連結
    - ⚠️ `replace_content` 會抱怨要刪掉子資料庫，必須在 `new_str` 裡保留 `<database url="..."/>` 標籤
-4. `notion-update-data-source` 改資料庫標題，並把「類別」選項換成該次 PRD 的實際分類：
+4. `notion-update-data-source` 改資料庫標題，並把「類別」選項換成該次 PRD 的實際分類（範本預設是 `A`～`J` 佔位，實際要幾個由 PRD 決定，可多可少）：
    ```
-   ALTER COLUMN "類別" SET MULTI_SELECT('A｜xxx':purple, 'B｜xxx':green, 'C｜xxx':pink, 'D｜xxx':orange, 'E｜xxx':brown, 'F｜xxx':blue, 'G｜xxx':yellow, 'H｜xxx':red, 'I｜xxx':gray, 'J｜xxx':default)
+   ALTER COLUMN "類別" SET MULTI_SELECT('A｜xxx':purple, 'B｜xxx':green, 'C｜xxx':pink, ...)
    ```
+   `ALTER COLUMN ... SET MULTI_SELECT(...)` 會整組替換選項，所以不受範本的 10 個佔位限制。
 5. 範本本身是空的，直接寫入測項即可
 
 **範本不見或無法存取時**才退回 DDL 新建（schema 見下），並在交付時主動告知「結果」欄的狀態選項需要手動設定一次。
@@ -71,7 +72,7 @@ description: "把 Notion PRD 規格文件轉成 Notion 測試案例資料庫（T
 
 寫入測項時**不要指定「結果」的值**，讓它自動帶預設的 N/A。
 
-退回 DDL 新建時用這段（欄位順序照寫，DDL 順序＝schema 順序）：
+退回 DDL 新建時用這段（欄位順序照寫，DDL 順序＝schema 順序；類別選項數量依實際分類調整）：
 
 ```sql
 CREATE TABLE (
@@ -90,6 +91,7 @@ CREATE TABLE (
 ### 4. 編號必須零補位且由上往下依序排列
 
 - 編號格式 `A-01`、`A-02`、…、`B-01`、`B-02`…（**兩位數零補位**，`A-1` 會讓字串排序爆掉）
+- 字母前綴依實際類別數往下延伸即可，不必湊到某個字母，也不必停在 J
 - 標題格式：`A-01｜情境描述`（全形分隔線 `｜`）
 - 寫入時**按編號順序**送 `notion-create-pages`
 - 光靠寫入順序不保險 → **view 上一定要有 `SORT BY "測試項目" ASC`**（範本已設好，複製後會繼承）
@@ -113,9 +115,9 @@ FREEZE COLUMNS 1
 
 1. **完整讀 PRD**：`notion-fetch` PRD 頁面。連 table、User Story、埋點表、測試注意事項、被劃掉（刪除線）的段落全部讀。
 2. **讀參考範本**（若有給）：`notion-fetch` 範本資料庫 + `notion-query-data-sources` 撈幾十筆看寫法（前置條件怎麼分行、預期結果的顆粒度、備註寫什麼）。
-3. **切分類別**：按 PRD 章節／實作項目切成 A～J 大類，每類名稱用 `字母｜中文短名`，例如 `A｜ICS 後台開關`、`D｜錯誤處理`。跨類的測項可在「類別」多選勾兩個。
+3. **切分類別**：依 PRD 的章節／實作項目切分，**類別數量由 PRD 結構決定，不要為了對齊某個字母硬湊或硬併**。每類名稱用 `字母｜中文短名`，例如 `A｜ICS 後台開關`、`D｜錯誤處理`。跨類的測項可在「類別」多選勾兩個。
 4. **複製範本並改好標題、分類選項**（見硬規則 1）。
-5. **展開測項**，每類典型密度 5～16 筆，總量 60～100 筆。務必涵蓋：
+5. **展開測項**。**數量由規格複雜度決定**：不要為了湊數硬拆重複的測項，也不要為了精簡而漏掉情境。判斷標準是「這條規格有沒有被至少一個可判定的測項覆蓋」。務必涵蓋：
    - 權限矩陣的每一格（各角色 × 開關狀態 × 平台）
    - 數值邊界（下限、下限-ε、上限、上限-ε）
    - 每一條錯誤情境 + 文案逐字比對
@@ -128,7 +130,7 @@ FREEZE COLUMNS 1
 8. **寫入**：`notion-create-pages` 分批（每批 ~30 筆）依編號順序送。
 9. **驗證**（必做）：
    - `SELECT COUNT(*)` 確認筆數
-   - 撈全部標題確認 A-01→J-nn 連號無跳號、無重號
+   - 撈全部標題確認編號連號無跳號、無重號
    - 掃簡體／異體字（見下）
 10. **回報**：附子頁面連結、分類筆數表、需要跟 PM 確認的規格矛盾清單。
 
