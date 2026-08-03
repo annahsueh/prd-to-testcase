@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "prd-to-testcase",
+  "description": "把 Notion PRD 規格文件轉成 Notion 測試案例資料庫，建在測試回報文件底下的新子頁面",
+  "version": "1.2.0",
+  "author": {
+    "name": "薛安妤 Anna Hsueh",
+    "url": "https://github.com/annahsueh"
+  },
+  "repository": "https://github.com/annahsueh/prd-to-testcase",
+  "license": "MIT",
+  "keywords": ["qa", "notion", "test-case", "prd"]
+}
