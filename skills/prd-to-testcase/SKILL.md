@@ -1,0 +1,159 @@
+---
+name: "prd-to-testcase"
+description: "把 Notion PRD 規格文件轉成 Notion 測試案例資料庫（Test Case DB），建在測試回報文件底下的新子頁面。當使用者說「幫我把這份 PRD 轉成測項」、「依照過去習慣寫測試規格到測試文件」、「PRD 轉 test case」、給了 PRD 連結＋測試文件連結時使用。"
+---
+
+# PRD → Notion Test Case 資料庫
+
+把 PRD 規格拆解成可執行的測試案例，寫成 Notion 資料庫，建在指定測試回報文件的最下方。
+
+## 需要的輸入
+
+1. **PRD 頁面連結**（必要）
+2. **測試回報文件連結**（必要，資料庫要建在這底下）
+3. 參考範本 Test Case 連結（選用，用來對齊風格）
+
+缺任何一項就先問，不要猜。
+
+---
+
+## 硬規則（使用者已明確要求，不要再問、不要改）
+
+### 1. 一律從「Test Case 範本」複製，不要用 DDL 從零建
+
+**範本位置**：QA Home 底下的「🧪 Test Case 範本（請複製後使用，不要直接寫在這裡）」
+`https://app.notion.com/p/3ac73301030f815cb39ef59414cb1f74`
+
+原因：`結果` 是狀態（status）屬性，而 **Notion API 無法建立或修改狀態選項**（`STATUS` 在 DDL 不接受括號參數，`ALTER COLUMN "結果" SET STATUS(...)` 會回 `validation_error`；直接寫入未定義的值也會被拒）。只有複製範本才能保留正確的狀態選項。
+
+流程：
+1. `notion-duplicate-page` 複製範本頁（**非同步**，複製後等 15～20 秒再 `notion-fetch` 確認內容已生成）
+2. `notion-move-pages` 把副本移到目標測試文件底下
+3. `notion-update-page` 改標題為 `🎙️ [平台] 功能名 Test Case（V1）`（icon 用該功能的 emoji，平台如 `[Web][App]`），並改頁面內容為 PRD `<mention-page>` 與 Figma 連結
+   - ⚠️ `replace_content` 會抱怨要刪掉子資料庫，必須在 `new_str` 裡保留 `<database url="..."/>` 標籤
+4. `notion-update-data-source` 改資料庫標題，並把「類別」選項換成該次 PRD 的實際分類：
+   ```
+   ALTER COLUMN "類別" SET MULTI_SELECT('A｜xxx':purple, 'B｜xxx':green, 'C｜xxx':pink, 'D｜xxx':orange, 'E｜xxx':brown, 'F｜xxx':blue, 'G｜xxx':yellow, 'H｜xxx':red, 'I｜xxx':gray, 'J｜xxx':default)
+   ```
+5. 範本本身是空的，直接寫入測項即可
+
+**範本不見或無法存取時**才退回 DDL 新建（schema 見下），並在交付時主動告知「結果」欄的狀態選項需要手動設定一次。
+
+### 2. 資料庫放在「新子頁面」裡，不要直接 inline 在測試文件
+
+副本本身就是一個子頁面，資料庫 inline 在裡面。直接把資料庫 inline 在測試文件上會佔掉整個版面，這是明確被否決過的做法。
+
+### 3. 欄位：固定 9 欄，固定順序，固定屬性
+
+由左至右：
+
+| # | 欄位名 | 屬性 |
+|---|---|---|
+| 1 | 測試項目 | 標題（title） |
+| 2 | 類別 | 多選（multi_select） |
+| 3 | 平台 | 選取（select）：Web / mWeb / App / All |
+| 4 | 前置條件 | 文字（自動換行） |
+| 5 | 預期結果 | 文字（自動換行） |
+| 6 | 測試資料 | 文字（自動換行） |
+| 7 | 結果 | 狀態（status） |
+| 8 | 備註 | 文字（自動換行） |
+| 9 | 檔案 | 檔案和媒體（files） |
+
+沒有「測試人員」欄。不要自己加欄位。
+
+「結果」狀態選項（範本已設好）：
+
+| 分組 | 選項 |
+|---|---|
+| 待辦事項 | `N/A`（預設值，新建列自動帶入） |
+| 進行中 | `Suspend`（黃） |
+| 已完成 | `Pass`（綠）、`Fail`（紅）、`Cancel`（灰） |
+
+寫入測項時**不要指定「結果」的值**，讓它自動帶預設的 N/A。
+
+退回 DDL 新建時用這段（欄位順序照寫，DDL 順序＝schema 順序）：
+
+```sql
+CREATE TABLE (
+  "測試項目" TITLE,
+  "類別" MULTI_SELECT('A｜xxx':purple, 'B｜xxx':green, 'C｜xxx':pink, 'D｜xxx':orange, 'E｜xxx':brown, 'F｜xxx':blue, 'G｜xxx':yellow, 'H｜xxx':red, 'I｜xxx':gray, 'J｜xxx':default),
+  "平台" SELECT('Web':gray, 'mWeb':brown, 'App':default, 'All':purple),
+  "前置條件" RICH_TEXT,
+  "預期結果" RICH_TEXT,
+  "測試資料" RICH_TEXT,
+  "結果" STATUS,
+  "備註" RICH_TEXT,
+  "檔案" FILES
+)
+```
+
+### 4. 編號必須零補位且由上往下依序排列
+
+- 編號格式 `A-01`、`A-02`、…、`B-01`、`B-02`…（**兩位數零補位**，`A-1` 會讓字串排序爆掉）
+- 標題格式：`A-01｜情境描述`（全形分隔線 `｜`）
+- 寫入時**按編號順序**送 `notion-create-pages`
+- 光靠寫入順序不保險 → **view 上一定要有 `SORT BY "測試項目" ASC`**（範本已設好，複製後會繼承）
+
+過去多次交付都是亂序，這條是最常出錯的地方，務必檢查。
+
+### 5. view 設定（範本已設好，DDL 新建時才要手動補）
+
+```
+SHOW "測試項目", "類別", "平台", "前置條件", "預期結果", "測試資料", "結果", "備註", "檔案";
+SORT BY "測試項目" ASC;
+WRAP CELLS true;
+FREEZE COLUMNS 1
+```
+
+`SHOW` 決定實際左右順序（schema 順序不等於 view 顯示順序，兩邊都要設）。`WRAP CELLS true` 就是「自動換行」。
+
+---
+
+## 工作流程
+
+1. **完整讀 PRD**：`notion-fetch` PRD 頁面。連 table、User Story、埋點表、測試注意事項、被劃掉（刪除線）的段落全部讀。
+2. **讀參考範本**（若有給）：`notion-fetch` 範本資料庫 + `notion-query-data-sources` 撈幾十筆看寫法（前置條件怎麼分行、預期結果的顆粒度、備註寫什麼）。
+3. **切分類別**：按 PRD 章節／實作項目切成 A～J 大類，每類名稱用 `字母｜中文短名`，例如 `A｜ICS 後台開關`、`D｜錯誤處理`。跨類的測項可在「類別」多選勾兩個。
+4. **複製範本並改好標題、分類選項**（見硬規則 1）。
+5. **展開測項**，每類典型密度 5～16 筆，總量 60～100 筆。務必涵蓋：
+   - 權限矩陣的每一格（各角色 × 開關狀態 × 平台）
+   - 數值邊界（下限、下限-ε、上限、上限-ε）
+   - 每一條錯誤情境 + 文案逐字比對
+   - 每一個入口的 end-to-end（PRD 的入口盤點表逐列展開，標 ❌ 的也要寫「不應出現」的反向測項）
+   - 每一個埋點事件 + 參數正確性 + 不該觸發的情境
+   - UI 與 Figma 一致性（附 Figma node id 到「測試資料」）
+   - 邊界與相容性：舊版相容／強更、弱網、離線、中斷、多裝置同步
+6. **被劃掉的規格要寫反向測項**：PRD 用刪除線標示的功能＝本版不做，要寫「選單內不應出現該選項」之類的測項，備註註明「PRD 已劃除，本版不做」。
+7. **標出規格矛盾與缺口**：PRD 前後不一致、或未定義的行為，照樣寫成測項，「預期結果」寫「依規格確認…」，「備註」寫明矛盾出處與「需與 PM 確認」。這是 QA 最有價值的產出，不要自己幫 PRD 補洞。
+8. **寫入**：`notion-create-pages` 分批（每批 ~30 筆）依編號順序送。
+9. **驗證**（必做）：
+   - `SELECT COUNT(*)` 確認筆數
+   - 撈全部標題確認 A-01→J-nn 連號無跳號、無重號
+   - 掃簡體／異體字（見下）
+10. **回報**：附子頁面連結、分類筆數表、需要跟 PM 確認的規格矛盾清單。
+
+---
+
+## 文字慣例
+
+- 全部**繁體中文（台灣用字）**。經常寫錯的字，寫入後務必回查：
+  - 內（U+5167）✅ ／ 内（U+5185）❌
+  - 斷 ✅ ／ 断 ❌
+  - 轉 ✅ ／ 转 ❌
+  - 銷 ✅ ／ 销 ❌
+  - 亂 ✅ ／ 乱 ❌
+  - 劃 ✅ ／ 划 ❌
+  - 檢查用 SQL：`WHERE 欄位 LIKE '%内%' OR ... LIKE '%断%' OR ...`
+- 「前置條件」多條件用分號＋換行分隔：`App；\n管理員；\nICS 已開啟`
+- 「測試資料」放 UAT 連結、課程名、Figma node id、App 版號
+- 「預期結果」要可判定（寫得出 Pass/Fail），避免「正常顯示」這種空話；引用 PRD 文案時**逐字照抄含標點**
+- 半形英數與中文之間留一個空格
+
+## Notion 工具備忘
+
+- 資料庫 DDL 欄位名要雙引號、選項值用單引號、顏色用 `:color`
+- 顏色可用：default, gray, brown, orange, yellow, green, blue, purple, pink, red
+- `notion-create-pages` 一次上限 100 筆
+- 多選欄位傳陣列：`"類別": ["A｜xxx", "H｜xxx"]`
+- **沒有刪除資料列的工具**。需要清空資料列時要請使用者在 Notion 介面手動選取刪除
+- 要刪掉整個資料庫：`notion-update-data-source` 帶 `in_trash: true`
